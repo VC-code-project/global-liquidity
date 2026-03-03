@@ -636,13 +636,10 @@ function genDemo() {
   return { dates, fed, tga, rrp, nl, roc4, roc12, accel, ecb, boj, pboc, glb, dxy, sofr, move, hySprd, bankLending, chinaFSF, btc, ndx, spx, isDemo: true };
 }
 
-// ── FRED API (fetch — works from HTTPS, FRED sends CORS headers) ──
-async function fredFetch(series, key) {
-  const since = new Date();
-  since.setFullYear(since.getFullYear() - 3);
-  const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${series}&api_key=${key}&file_type=json&observation_start=${since.toISOString().split('T')[0]}&sort_order=asc`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`FRED HTTP ${res.status} for ${series}`);
+// ── FRED API (via /api/fred serverless proxy — no CORS issues) ──
+async function fredFetch(series, _key) {
+  const res = await fetch(`/api/fred?series=${encodeURIComponent(series)}`);
+  if (!res.ok) throw new Error(`Proxy HTTP ${res.status} for ${series}`);
   const data = await res.json();
   if (data.error_code) throw new Error(`FRED ${series}: ${data.error_message}`);
   return data.observations.filter(o => o.value !== '.').map(o => ({ date: o.date, val: parseFloat(o.value) }));
