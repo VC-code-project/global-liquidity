@@ -665,12 +665,25 @@ async function tryPrice(symbol) {
   } catch(e) { console.warn(`Price fetch failed for ${symbol}:`, e.message); return null; }
 }
 
+// align: forward-fills for dates after data starts, returns first value for pre-data dates
 function align(series, targetDates) {
   return targetDates.map(d => {
     const hit = series.find(s => s.date === d);
     if (hit) return hit.val;
     const before = [...series].reverse().find(s => s.date <= d);
-    return before ? before.val : series.at(-1)?.val ?? 0;
+    return before ? before.val : (series[0]?.val ?? 0); // oldest value, not latest
+  });
+}
+
+// alignAsset: same but returns null before data exists → Chart.js renders gap
+function alignAsset(series, targetDates) {
+  const earliest = series[0]?.date ?? '';
+  return targetDates.map(d => {
+    if (d < earliest) return null;
+    const hit = series.find(s => s.date === d);
+    if (hit) return hit.val;
+    const before = [...series].reverse().find(s => s.date <= d);
+    return before?.val ?? null;
   });
 }
 
@@ -788,10 +801,10 @@ async function fetchLive() {
     chinaFSF = m.map((v, i) => i < 52 ? 0 : rnd((v - m[i-52]) / m[i-52] * 100, 2));
   } else { chinaFSF = pad(demo.chinaFSF); }
 
-  // ── Asset prices (weekly, indexed) ───────────────────────────
-  const btc = btcS ? align(btcS, dates) : pad(demo.btc);
-  const ndx = ndxS ? align(ndxS, dates) : pad(demo.ndx);
-  const spx = spxS ? align(spxS, dates) : pad(demo.spx);
+  // ── Asset prices — use alignAsset so pre-data shows gap, not garbage ─
+  const btc = btcS ? alignAsset(btcS, dates) : pad(demo.btc);
+  const ndx = ndxS ? alignAsset(ndxS, dates) : pad(demo.ndx);
+  const spx = spxS ? alignAsset(spxS, dates) : pad(demo.spx);
 
   return {
     dates, fed: fedB, tga, rrp, nl, roc4, roc12, accel,
@@ -1144,7 +1157,7 @@ function initCredit(d) {
 
 // ── Asset Overlay Chart ────────────────────────────────────────
 function initOverlay(d) {
-  const norm = arr => { const b = arr[0] || 1; return arr.map(v => rnd(v/b*100, 1)); };
+  const norm = arr => { const b = arr.find(v => v != null) || 1; return arr.map(v => v == null ? null : rnd(v/b*100, 1)); };
   const base = S.overlayBase === 'usnl' ? d.nl : d.glb;
 
   const datasets = [{
