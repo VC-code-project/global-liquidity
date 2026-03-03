@@ -5,11 +5,7 @@ export default async function handler(req, res) {
   const { series, start } = req.query;
   if (!series) return res.status(400).json({ error: 'Missing series parameter' });
 
-  const since = start || (() => {
-    const d = new Date();
-    d.setFullYear(d.getFullYear() - 3);
-    return d.toISOString().split('T')[0];
-  })();
+  const since = start || '2000-01-01';
 
   const apiKey = '9c6cdd3f61f7894981fe013088b3e8a6';
   const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${series}&api_key=${apiKey}&file_type=json&observation_start=${since}&sort_order=asc`;
