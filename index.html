@@ -709,9 +709,9 @@ async function fetchLive() {
     tryFred('VIXCLS',        key),  // CBOE VIX, daily
     tryFred('EXCHUS',        key),  // CNY per USD, daily
     tryFred('MYAGM2CNM189N', key),  // China M2, billions CNY, monthly (OECD)
-    tryPrice('BTC-USD'),
-    tryPrice('^NDX'),
-    tryPrice('^GSPC'),
+    tryPrice('BTC-USD'),            // BTC via Binance (no auth needed)
+    tryFred('NASDAQCOM',     key),  // NASDAQ Composite daily (FRED)
+    tryFred('SP500',         key),  // S&P 500 daily (FRED)
   ]);
 
   const demo = genDemo();
