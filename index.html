@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Global Liquidity Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #07090f;
+      --surface: #0d1117;
+      --card: #111827;
+      --card2: #161f2e;
+      --border: #1f2d3d;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --dim: #2d3748;
+      --orange: #f97316;
+      --orange-dim: rgba(249,115,22,0.12);
+      --green: #10b981;
+      --green-dim: rgba(16,185,129,0.12);
+      --red: #ef4444;
+      --red-dim: rgba(239,68,68,0.12);
+      --yellow: #eab308;
+      --yellow-dim: rgba(234,179,8,0.12);
+      --blue: #3b82f6;
+      --blue-dim: rgba(59,130,246,0.12);
+      --purple: #8b5cf6;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ── HEADER ─────────────────────────────────────── */
+    .hdr {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+    }
+    .hdr-left { display: flex; align-items: center; gap: 14px; }
+    .hdr-icon {
+      width: 34px; height: 34px;
+      background: linear-gradient(135deg, var(--orange) 0%, #fb923c 100%);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px; flex-shrink: 0;
+    }
+    .hdr-title { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
+    .hdr-sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+    .hdr-right { display: flex; align-items: center; gap: 10px; }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 9px; border-radius: 4px;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
+    }
+    .badge-demo { background: var(--yellow-dim); color: var(--yellow); }
+    .badge-live { background: var(--green-dim); color: var(--green); }
+
+    .btn {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 7px; color: var(--text); cursor: pointer;
+      font-size: 12px; padding: 7px 13px;
+      display: flex; align-items: center; gap: 5px;
+      transition: border-color .15s, background .15s;
+    }
+    .btn:hover { border-color: var(--orange); background: var(--card2); }
+    .btn-primary { background: var(--orange); border-color: var(--orange); color: #fff; font-weight: 600; }
+    .btn-primary:hover { background: #ea6c0a; border-color: #ea6c0a; }
+    select.btn { cursor: pointer; padding-right: 10px; appearance: auto; }
+    select.btn option { background: var(--card); color: var(--text); }
+    .time-sel {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--muted); cursor: pointer;
+      font-size: 11px; font-weight: 600; padding: 4px 8px;
+      outline: none; transition: border-color .15s, color .15s;
+      appearance: auto;
+    }
+    .time-sel:hover, .time-sel:focus { border-color: var(--orange); color: var(--orange); }
+    .time-sel option { background: var(--card); color: var(--text); }
+
+    .ts { font-size: 11px; color: var(--muted); }
+
+    /* ── REGIME BANNER ──────────────────────────────── */
+    .regime-bar {
+      padding: 9px 24px;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      font-size: 12px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase;
+      transition: background .4s, color .4s;
+    }
+    .regime-bar.expansion   { background: var(--green-dim);  color: var(--green); }
+    .regime-bar.decel       { background: var(--yellow-dim); color: var(--yellow); }
+    .regime-bar.contraction { background: var(--red-dim);    color: var(--red); }
+    .regime-bar.bottoming   { background: var(--blue-dim);   color: var(--blue); }
+
+    /* ── MAIN LAYOUT ────────────────────────────────── */
+    .wrap { max-width: 1520px; margin: 0 auto; padding: 20px 24px 40px; }
+
+    /* ── TOP ROW ────────────────────────────────────── */
+    .top-row { display: grid; grid-template-columns: 260px 1fr; gap: 16px; margin-bottom: 16px; }
+
+    /* Momentum Card */
+    .momentum-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+      padding: 22px 20px; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; text-align: center;
+      position: relative; overflow: hidden;
+    }
+    .momentum-card::before {
+      content: ''; position: absolute; inset: 0;
+      background: radial-gradient(ellipse at 50% 100%, rgba(249,115,22,0.07) 0%, transparent 65%);
+    }
+    .momentum-label { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); }
+    .momentum-num {
+      font-size: 80px; font-weight: 900; line-height: 1;
+      letter-spacing: -4px; margin: 4px 0;
+      background: linear-gradient(135deg, var(--orange), #fb923c);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .momentum-arrow { font-size: 22px; }
+    .momentum-sub { font-size: 11px; color: var(--muted); margin-top: 3px; }
+    canvas#gauge { display: block; margin: 6px auto; }
+
+    /* Key metric cards */
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .kpi {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px 18px;
+    }
+    .kpi-label { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+    .kpi-val { font-size: 26px; font-weight: 800; letter-spacing: -1px; line-height: 1; }
+    .kpi-val.pos { color: var(--green); }
+    .kpi-val.neg { color: var(--red); }
+    .kpi-val.neu { color: var(--text); }
+    .kpi-sub { font-size: 11px; color: var(--muted); margin-top: 5px; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 3px;
+      padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700;
+      margin-top: 7px;
+    }
+    .pill-up   { background: var(--green-dim);  color: var(--green); }
+    .pill-down { background: var(--red-dim);    color: var(--red); }
+    .pill-flat { background: var(--blue-dim);   color: var(--blue); }
+
+    /* ── CHART CARD ─────────────────────────────────── */
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+      padding: 18px 22px; margin-bottom: 16px;
+    }
+    .card-hdr { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+    .card-title { font-size: 14px; font-weight: 700; }
+    .card-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .card-tabs { display: flex; gap: 6px; }
+    .tab {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 6px; padding: 4px 10px;
+      font-size: 11px; cursor: pointer; color: var(--muted);
+      transition: all .15s;
+    }
+    .tab.on, .tab:hover { background: var(--orange-dim); border-color: var(--orange); color: var(--orange); }
+
+    .chart-wrap { position: relative; }
+    .chart-wrap.h280 { height: 280px; }
+    .chart-wrap.h240 { height: 240px; }
+    .chart-wrap.h200 { height: 200px; }
+
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+    .leg { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+    .leg-line { width: 12px; height: 2px; border-radius: 1px; }
+
+    /* ── TWO COLUMN ROW ─────────────────────────────── */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .two-col .card { margin-bottom: 0; }
+
+    /* ── HEATMAP ────────────────────────────────────── */
+    .stress-bar-wrap { margin: 4px 0 12px; }
+    .stress-bar-label { font-size: 10px; color: var(--muted); margin-bottom: 5px; }
+    .stress-bar-track { height: 6px; background: var(--dim); border-radius: 3px; overflow: hidden; }
+    .stress-bar-fill { height: 100%; border-radius: 3px; transition: width .5s, background .5s; }
+
+    .hm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .hm-cell {
+      border-radius: 10px; padding: 13px 14px; cursor: default;
+      transition: transform .15s;
+    }
+    .hm-cell:hover { transform: translateY(-1px); }
+    .hm-cell-label { font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; opacity: 0.8; }
+    .hm-cell-val { font-size: 20px; font-weight: 800; margin-top: 4px; }
+    .hm-cell-chg { font-size: 10px; opacity: 0.7; margin-top: 2px; }
+    .hm-low  { background: var(--green-dim);  border: 1px solid rgba(16,185,129,0.25); color: var(--green); }
+    .hm-med  { background: var(--yellow-dim); border: 1px solid rgba(234,179,8,0.25);  color: var(--yellow); }
+    .hm-high { background: var(--red-dim);    border: 1px solid rgba(239,68,68,0.25);  color: var(--red); }
+
+    /* ── ASSET OVERLAY ──────────────────────────────── */
+    .overlay-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .asset-chip {
+      border: 2px solid var(--border); border-radius: 7px;
+      padding: 5px 13px; font-size: 12px; font-weight: 700;
+      cursor: pointer; color: var(--muted); background: var(--surface);
+      transition: all .15s;
+    }
+    .asset-chip.on-btc { border-color: #f7931a; color: #f7931a; background: rgba(247,147,26,0.1); }
+    .asset-chip.on-ndx { border-color: var(--blue);   color: var(--blue);   background: var(--blue-dim); }
+    .asset-chip.on-spx { border-color: var(--purple); color: var(--purple); background: rgba(139,92,246,0.1); }
+    .divider { width: 1px; height: 22px; background: var(--border); }
+
+    /* ── ALERTS ─────────────────────────────────────── */
+    .alerts-section { margin-bottom: 16px; }
+    .section-head { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); margin-bottom: 10px; }
+    .alert-row {
+      background: var(--card); border: 1px solid var(--border); border-radius: 9px;
+      padding: 10px 14px; display: flex; align-items: center; gap: 10px; margin-bottom: 7px;
+    }
+    .adot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .adot-g { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .adot-r { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+    .adot-y { background: var(--yellow);box-shadow: 0 0 6px var(--yellow); }
+    .adot-b { background: var(--blue);  box-shadow: 0 0 6px var(--blue); }
+    .atxt { flex: 1; font-size: 12px; }
+    .atime { font-size: 10px; color: var(--dim); flex-shrink: 0; }
+
+    /* ── MODAL ──────────────────────────────────────── */
+    .modal-bg {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.65); z-index: 500;
+      align-items: center; justify-content: center;
+    }
+    .modal-bg.open { display: flex; }
+    .modal-box {
+      background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+      padding: 28px 30px; width: 440px; max-width: 95vw;
+    }
+    .modal-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+    .modal-desc { font-size: 12px; color: var(--muted); margin-bottom: 22px; }
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+    .field input, .field select {
+      width: 100%; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 7px; color: var(--text); font-size: 13px; padding: 9px 12px; outline: none;
+      transition: border-color .15s;
+    }
+    .field input:focus, .field select:focus { border-color: var(--orange); }
+    .field-hint { font-size: 10px; color: var(--dim); margin-top: 3px; }
+    .field-hint a { color: var(--orange); }
+    .modal-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+
+    /* ── LOADING ────────────────────────────────────── */
+    .spinner-bg {
+      display: none; position: fixed; inset: 0;
+      background: rgba(7,9,15,.75); z-index: 300;
+      align-items: center; justify-content: center; flex-direction: column; gap: 14px;
+    }
+    .spinner-bg.on { display: flex; }
+    .spin {
+      width: 36px; height: 36px; border: 3px solid var(--border);
+      border-top-color: var(--orange); border-radius: 50%;
+      animation: rot .7s linear infinite;
+    }
+    @keyframes rot { to { transform: rotate(360deg); } }
+    .spin-lbl { font-size: 12px; color: var(--muted); }
+
+    /* ── RESPONSIVE ─────────────────────────────────── */
+    @media (max-width: 1100px) {
+      .top-row { grid-template-columns: 1fr; }
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 720px) {
+      .two-col { grid-template-columns: 1fr; }
+      .wrap { padding: 12px; }
+      .momentum-num { font-size: 60px; }
+    }
+    @media (max-width: 480px) {
+      .kpi-grid { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Loading Spinner -->
+<div class="spinner-bg" id="spinner">
+  <div class="spin"></div>
+  <div class="spin-lbl">Fetching liquidity data…</div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-bg" id="settingsModal">
+  <div class="modal-box">
+    <div class="modal-title">Dashboard Settings</div>
+    <div class="modal-desc">Add a FRED API key to load live data. Without it the dashboard runs on realistic simulated data.</div>
+    <div class="field">
+      <label>FRED API Key</label>
+      <input id="fredKey" type="text" placeholder="abcdef1234567890abcdef1234567890">
+      <div class="field-hint">Free key from <a href="https://fred.stlouisfed.org/docs/api/api_key.html" target="_blank">fred.stlouisfed.org</a></div>
+    </div>
+    <div class="field">
+      <label>Auto-refresh interval</label>
+      <select id="refreshInterval">
+        <option value="3600000">Every 1 hour</option>
+        <option value="86400000" selected>Every 24 hours</option>
+        <option value="0">Manual only</option>
+      </select>
+    </div>
+    <div class="modal-btns">
+      <button class="btn" onclick="closeSettings()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSettings()">Save &amp; Refresh</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── HEADER ─────────────────────────────────────────── -->
+<header class="hdr">
+  <div class="hdr-left">
+    <div class="hdr-icon">💧</div>
+    <div>
+      <div class="hdr-title">Global Liquidity</div>
+      <div class="hdr-sub">Macro regime tracker · Risk asset positioning</div>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <span class="ts" id="lastUpdated">—</span>
+    <span class="badge badge-demo" id="dataMode">DEMO</span>
+    <button class="btn" onclick="refreshData()">↺ Refresh</button>
+    <button class="btn" onclick="openSettings()">⚙ Settings</button>
+  </div>
+</header>
+
+<!-- ── REGIME BANNER ──────────────────────────────────── -->
+<div class="regime-bar expansion" id="regimeBanner">
+  <span id="regimeEmoji">🟢</span>
+  <span id="regimeText">Loading regime…</span>
+</div>
+
+<!-- ── MAIN CONTENT ───────────────────────────────────── -->
+<div class="wrap">
+
+  <!-- Top Row: Momentum Score + KPIs -->
+  <div class="top-row">
+    <!-- Momentum Score -->
+    <div class="momentum-card">
+      <div class="momentum-label">Liquidity Momentum Score</div>
+      <div class="momentum-num" id="scoreNum">—</div>
+      <canvas id="gauge" width="180" height="96"></canvas>
+      <div class="momentum-arrow" id="scoreArrow">—</div>
+      <div class="momentum-sub" id="scoreSub">Week over week</div>
+    </div>
+
+    <!-- KPI Grid -->
+    <div class="kpi-grid">
+      <div class="kpi">
+        <div class="kpi-label">US Net Liquidity</div>
+        <div class="kpi-val neu" id="kpiNL">—</div>
+        <div class="kpi-sub">Fed Assets − TGA − RRP</div>
+        <div class="pill pill-flat" id="kpiNLPill">—</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">4W Rate of Change</div>
+        <div class="kpi-val" id="kpi4W">—</div>
+        <div class="kpi-sub">4-week momentum</div>
+        <div class="pill" id="kpi4WPill">—</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">12W Rate of Change</div>
+        <div class="kpi-val" id="kpi12W">—</div>
+        <div class="kpi-sub">12-week trend</div>
+        <div class="pill" id="kpi12WPill">—</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Acceleration (2nd Deriv.)</div>
+        <div class="kpi-val" id="kpiAccel">—</div>
+        <div class="kpi-sub">Δ ROC — inflection signal</div>
+        <div class="pill" id="kpiAccelPill">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- US Net Liquidity Chart -->
+  <div class="card">
+    <div class="card-hdr">
+      <div>
+        <div class="card-title">US Net Liquidity</div>
+        <div class="card-sub">Fed Total Assets − Treasury General Account (TGA) − Reverse Repo (RRP)</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="card-tabs" id="nlTabs">
+          <span class="tab on"  onclick="setNLView('level',this)">Level</span>
+          <span class="tab"     onclick="setNLView('4w',this)">4W ROC</span>
+          <span class="tab"     onclick="setNLView('12w',this)">12W ROC</span>
+          <span class="tab"     onclick="setNLView('accel',this)">Accel.</span>
+        </div>
+        <select class="time-sel" onchange="setChartRange('nl',this.value)">
+          <option value="1M">1M</option><option value="3M">3M</option>
+          <option value="6M">6M</option><option value="1Y">1Y</option>
+          <option value="2Y" selected>All</option>
+        </select>
+      </div>
+    </div>
+    <div class="chart-wrap h280"><canvas id="nlChart"></canvas></div>
+    <div class="legend">
+      <div class="leg"><div class="leg-line" style="background:var(--orange)"></div>Net Liquidity</div>
+      <div class="leg"><div class="leg-line" style="background:var(--blue);opacity:.6"></div>Fed Assets</div>
+      <div class="leg"><div class="leg-line" style="background:var(--yellow);opacity:.6"></div>TGA</div>
+      <div class="leg"><div class="leg-line" style="background:var(--purple);opacity:.6"></div>RRP</div>
+    </div>
+  </div>
+
+  <!-- Global Liquidity Chart -->
+  <div class="card">
+    <div class="card-hdr">
+      <div>
+        <div class="card-title">Global Central Bank Liquidity</div>
+        <div class="card-sub">Fed + ECB + BoJ + PBoC · All converted to USD billions</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="card-tabs" id="glbTabs">
+          <span class="tab on" onclick="setGLBView('total',this)">Total</span>
+          <span class="tab"    onclick="setGLBView('yoy',this)">YoY %</span>
+          <span class="tab"    onclick="setGLBView('3m',this)">3M %</span>
+        </div>
+        <select class="time-sel" onchange="setChartRange('glb',this.value)">
+          <option value="1M">1M</option><option value="3M">3M</option>
+          <option value="6M">6M</option><option value="1Y">1Y</option>
+          <option value="2Y" selected>All</option>
+        </select>
+      </div>
+    </div>
+    <div class="chart-wrap h280"><canvas id="glbChart"></canvas></div>
+    <div class="legend">
+      <div class="leg"><div class="leg-line" style="background:var(--blue)"></div>Fed</div>
+      <div class="leg"><div class="leg-line" style="background:var(--green)"></div>ECB</div>
+      <div class="leg"><div class="leg-line" style="background:#f7931a"></div>BoJ</div>
+      <div class="leg"><div class="leg-line" style="background:var(--red)"></div>PBoC</div>
+    </div>
+  </div>
+
+  <!-- Bottom Row: Dollar Stress + Credit -->
+  <div class="two-col">
+
+    <!-- Dollar Stress Heatmap -->
+    <div class="card">
+      <div class="card-hdr">
+        <div>
+          <div class="card-title">Dollar Funding Conditions</div>
+          <div class="card-sub">Composite liquidity stress indicator</div>
+        </div>
+      </div>
+      <div class="stress-bar-wrap">
+        <div class="stress-bar-label" id="stressLabel">Composite Stress: —</div>
+        <div class="stress-bar-track">
+          <div class="stress-bar-fill" id="stressFill" style="width:0%"></div>
+        </div>
+      </div>
+      <div class="hm-grid">
+        <div class="hm-cell hm-low" id="hmDXY">
+          <div class="hm-cell-label">DXY Index</div>
+          <div class="hm-cell-val" id="dxyVal">—</div>
+          <div class="hm-cell-chg" id="dxyChg">—</div>
+        </div>
+        <div class="hm-cell hm-med" id="hmSOFR">
+          <div class="hm-cell-label">SOFR</div>
+          <div class="hm-cell-val" id="sofrVal">—</div>
+          <div class="hm-cell-chg" id="sofrChg">—</div>
+        </div>
+        <div class="hm-cell hm-low" id="hmMOVE">
+          <div class="hm-cell-label">MOVE Index</div>
+          <div class="hm-cell-val" id="moveVal">—</div>
+          <div class="hm-cell-chg" id="moveChg">—</div>
+        </div>
+        <div class="hm-cell hm-med" id="hmHY">
+          <div class="hm-cell-label">HY Spread (OAS)</div>
+          <div class="hm-cell-val" id="hyVal">—</div>
+          <div class="hm-cell-chg" id="hyChg">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Credit Chart -->
+    <div class="card">
+      <div class="card-hdr">
+        <div>
+          <div class="card-title">Credit Creation</div>
+          <div class="card-sub">US bank lending growth · China total social financing (YoY%)</div>
+        </div>
+        <select class="time-sel" onchange="setChartRange('credit',this.value)">
+          <option value="1M">1M</option><option value="3M">3M</option>
+          <option value="6M">6M</option><option value="1Y">1Y</option>
+          <option value="2Y" selected>All</option>
+        </select>
+      </div>
+      <div class="chart-wrap h240"><canvas id="creditChart"></canvas></div>
+    </div>
+
+  </div>
+
+  <!-- Asset Overlay -->
+  <div class="card">
+    <div class="card-hdr">
+      <div>
+        <div class="card-title">Asset Overlay</div>
+        <div class="card-sub">Correlate risk assets vs liquidity (indexed to 100)</div>
+      </div>
+      <div class="overlay-bar">
+        <span class="asset-chip" id="chipBTC" onclick="toggleAsset('btc',this)">₿ BTC</span>
+        <span class="asset-chip" id="chipNDX" onclick="toggleAsset('ndx',this)">NASDAQ</span>
+        <span class="asset-chip" id="chipSPX" onclick="toggleAsset('spx',this)">S&amp;P 500</span>
+        <div class="divider"></div>
+        <span class="tab on" onclick="setOverlayBase('usnl',this)">vs US Net Liq.</span>
+        <span class="tab"   onclick="setOverlayBase('global',this)">vs Global Liq.</span>
+        <div class="divider"></div>
+        <select class="time-sel" onchange="setChartRange('overlay',this.value)">
+          <option value="1M">1M</option><option value="3M">3M</option>
+          <option value="6M">6M</option><option value="1Y">1Y</option>
+          <option value="2Y" selected>All</option>
+        </select>
+      </div>
+    </div>
+    <div class="chart-wrap h280"><canvas id="overlayChart"></canvas></div>
+  </div>
+
+  <!-- Alerts -->
+  <div class="alerts-section">
+    <div class="section-head">⚡ Regime Alerts</div>
+    <div id="alertsBox"></div>
+  </div>
+
+</div><!-- /wrap -->
+
+<script>
+// =============================================================
+//  GLOBAL LIQUIDITY DASHBOARD  –  v1.0
+// =============================================================
+
+// ── State ─────────────────────────────────────────────────────
+const S = {
+  fredKey:      localStorage.getItem('gl_fred_key') || '9c6cdd3f61f7894981fe013088b3e8a6',
+  data:         null,
+  charts:       {},
+  nlView:       'level',
+  glbView:      'total',
+  overlayAssets:[],
+  overlayBase:  'usnl',
+  timeRange:    { nl:'2Y', glb:'2Y', credit:'2Y', overlay:'2Y' },
+};
+
+// ── Helpers ───────────────────────────────────────────────────
+const $  = id => document.getElementById(id);
+const fmtT = n => Math.abs(n) >= 1000 ? `$${(n/1000).toFixed(2)}T` : `$${n.toFixed(0)}B`;
+const fmtP = n => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+const clamp = (v,a,b) => Math.min(b, Math.max(a, v));
+const rnd = (n,dec=0) => parseFloat(n.toFixed(dec));
+
+// ── Demo Data ─────────────────────────────────────────────────
+function genDemo() {
+  const W = 104;  // 2 years
+  const now = new Date();
+  const dates = Array.from({length: W}, (_, i) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() - (W - 1 - i) * 7);
+    return d.toISOString().split('T')[0];
+  });
+
+  // Fed assets: QT from ~$8.9T → ~$6.8T with noise
+  const fed = [];
+  let f = 8950;
+  for (let i = 0; i < W; i++) {
+    f -= 20 + Math.random() * 10;
+    f += Math.sin(i / 6) * 12;
+    f = clamp(f, 6700, 9100);
+    fed.push(rnd(f));
+  }
+
+  // TGA: volatile $80B–$870B
+  const tga = dates.map((_, i) => {
+    const t = i / W;
+    return rnd(clamp(350 + Math.sin(t*7+1)*230 + Math.cos(t*13)*110 + (Math.random()-.5)*60, 60, 900));
+  });
+
+  // RRP: peaks ~$2.4T, declines to near 0
+  const rrp = dates.map((_, i) => {
+    const t = i / W;
+    return rnd(clamp(2450 * Math.pow(Math.max(0, 1 - t * 1.15), 1.6) + (Math.random()-.5)*40, 0, 2600));
+  });
+
+  // Net Liquidity
+  const nl = fed.map((v, i) => v - tga[i] - rrp[i]);
+
+  // ROC / Accel
+  const roc4  = nl.map((v, i) => i < 4  ? 0 : rnd((v - nl[i-4])  / Math.abs(nl[i-4])  * 100, 3));
+  const roc12 = nl.map((v, i) => i < 12 ? 0 : rnd((v - nl[i-12]) / Math.abs(nl[i-12]) * 100, 3));
+  const accel = roc4.map((v, i) => i < 1 ? 0 : rnd(v - roc4[i-1], 3));
+
+  // Global CBs (USD B)
+  const ecb  = dates.map((_, i) => rnd(clamp(8300 - (i/W)*900 + Math.sin(i/5)*150 + (Math.random()-.5)*50, 6000, 9000)));
+  const boj  = dates.map((_, i) => rnd(clamp(5200 + (i/W)*500 + Math.sin(i/4)*200 + (Math.random()-.5)*80, 4500, 6500)));
+  const pboc = dates.map((_, i) => rnd(clamp(5700 + (i/W)*700 + Math.cos(i/4)*150 + (Math.random()-.5)*60, 5000, 7200)));
+  const glb  = fed.map((v, i) => v + ecb[i] + boj[i] + pboc[i]);
+
+  // Market indicators (latest)
+  const dxy    = rnd(103.2 + (Math.random()-.5)*3, 1);
+  const sofr   = rnd(4.31  + (Math.random()-.5)*.2, 2);
+  const move   = rnd(102   + Math.random()*22, 0);
+  const hySprd = rnd(3.4   + Math.random()*.9, 2);
+
+  // Weekly history for sparklines / credit chart
+  const bankLending = dates.map((_, i) => rnd(5.2 - (i/W)*2.8 + Math.sin(i/7)*1.5 + (Math.random()-.5)*.5, 2));
+  const chinaFSF    = dates.map((_, i) => rnd(9.4 + Math.cos(i/5)*1.3 + (Math.random()-.5)*.4, 2));
+
+  // Asset prices (weekly)
+  function walkAsset(start, upBias, vol, min, max) {
+    const arr = [start];
+    for (let i = 1; i < W; i++) {
+      const r = arr[i-1] * (1 + (Math.random() - (0.5 - upBias)) * vol);
+      arr.push(rnd(clamp(r, min, max)));
+    }
+    return arr;
+  }
+  const btc = walkAsset(28000, 0.02, 0.06, 16000, 115000);
+  const ndx = walkAsset(13000, 0.01, 0.025, 9000, 24000);
+  const spx = walkAsset(4200,  0.01, 0.02,  3300, 6500);
+
+  return { dates, fed, tga, rrp, nl, roc4, roc12, accel, ecb, boj, pboc, glb, dxy, sofr, move, hySprd, bankLending, chinaFSF, btc, ndx, spx, isDemo: true };
+}
+
+// ── FRED API (JSONP — works from file:// with no CORS issues) ──
+function fredFetch(series, key) {
+  return new Promise((resolve, reject) => {
+    const cb = `_fred_${series}_${Date.now()}`;
+    const since = new Date();
+    since.setFullYear(since.getFullYear() - 2);
+    const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${series}&api_key=${key}&file_type=json&observation_start=${since.toISOString().split('T')[0]}&sort_order=asc&callback=${cb}`;
+    window[cb] = (data) => {
+      delete window[cb]; script.remove();
+      if (data.error_code) return reject(new Error(`FRED ${series}: ${data.error_message}`));
+      resolve(data.observations.filter(o => o.value !== '.').map(o => ({ date: o.date, val: parseFloat(o.value) })));
+    };
+    const script = document.createElement('script');
+    script.src = url;
+    script.onerror = () => { delete window[cb]; script.remove(); reject(new Error(`JSONP failed: ${series}`)); };
+    document.head.appendChild(script);
+  });
+}
+
+function align(series, targetDates) {
+  return targetDates.map(d => {
+    const hit = series.find(s => s.date === d);
+    if (hit) return hit.val;
+    const before = [...series].reverse().find(s => s.date <= d);
+    return before ? before.val : series.at(-1)?.val ?? 0;
+  });
+}
+
+async function tryFred(series, key) {
+  try { return await fredFetch(series, key); }
+  catch(e) { console.warn(`FRED series ${series} failed:`, e.message); return null; }
+}
+
+async function fetchLive() {
+  const key = S.fredKey;
+  if (!key) return null;
+
+  // WALCL is mandatory — everything else degrades gracefully
+  let walcl;
+  try { walcl = await fredFetch('WALCL', key); }
+  catch(e) { console.error('FRED WALCL failed (bad key or network?):', e.message); return null; }
+
+  const [tgaS, rrpS, sofrS, hyS] = await Promise.all([
+    tryFred('WTREGEN',      key),
+    tryFred('RRPONTSYD',    key),
+    tryFred('SOFR',         key),
+    tryFred('BAMLH0A0HYM2', key),
+  ]);
+
+  const demo  = genDemo();
+  const dates = walcl.map(d => d.date);
+  const fed   = walcl.map(d => d.val);
+  const tga   = tgaS ? align(tgaS, dates) : demo.tga.slice(-dates.length);
+  const rrp   = rrpS ? align(rrpS, dates) : demo.rrp.slice(-dates.length);
+  const nl    = fed.map((v, i) => v - tga[i] - rrp[i]);
+  const roc4  = nl.map((v, i) => i < 4  ? 0 : rnd((v - nl[i-4])  / Math.abs(nl[i-4])  * 100, 3));
+  const roc12 = nl.map((v, i) => i < 12 ? 0 : rnd((v - nl[i-12]) / Math.abs(nl[i-12]) * 100, 3));
+  const accel = roc4.map((v, i) => i < 1 ? 0 : rnd(v - roc4[i-1], 3));
+
+  // Pad or trim simulated global CB arrays to match live date length
+  const pad = (arr) => {
+    if (arr.length >= dates.length) return arr.slice(-dates.length);
+    return [...Array(dates.length - arr.length).fill(arr[0]), ...arr];
+  };
+
+  return {
+    dates, fed, tga, rrp, nl, roc4, roc12, accel,
+    ecb: pad(demo.ecb), boj: pad(demo.boj), pboc: pad(demo.pboc),
+    glb: fed.map((v, i) => v + pad(demo.ecb)[i] + pad(demo.boj)[i] + pad(demo.pboc)[i]),
+    dxy: 103.2,
+    sofr:   sofrS?.at(-1)?.val ?? 4.35,
+    move:   102,
+    hySprd: hyS?.at(-1)?.val   ?? 3.5,
+    bankLending: pad(demo.bankLending), chinaFSF: pad(demo.chinaFSF),
+    btc: pad(demo.btc), ndx: pad(demo.ndx), spx: pad(demo.spx),
+    isDemo: false,
+  };
+}
+
+// ── Calculations ──────────────────────────────────────────────
+function zScore(arr) {
+  const mean = arr.reduce((a,b) => a+b, 0) / arr.length;
+  const sd   = Math.sqrt(arr.reduce((s,v) => s + (v-mean)**2, 0) / arr.length);
+  return sd === 0 ? arr.map(() => 0) : arr.map(v => (v - mean) / sd);
+}
+
+function momentumScore(d) {
+  const n = d.nl.length - 1;
+  if (n < 13) return 50;
+  // z-score last 52w of each component
+  const W = Math.min(52, n);
+  const zNL4  = zScore(d.roc4.slice(n-W, n+1));
+  const zNL12 = zScore(d.roc12.slice(n-W, n+1));
+  const zGLB  = zScore(d.glb.slice(n-W, n+1).map((v,i,a) => i<4?0:(v-a[Math.max(0,i-4)])/Math.abs(a[Math.max(0,i-4)])*100));
+  const zHY   = zScore(Array(W+1).fill(-d.hySprd)); // inverted
+  const zDXY  = zScore(Array(W+1).fill(-d.dxy));    // inverted
+
+  // Latest z-scores (last element)
+  const composite = zNL4.at(-1)*0.40 + zNL12.at(-1)*0.20 + zGLB.at(-1)*0.20 + zHY.at(-1)*0.10 + zDXY.at(-1)*0.10;
+  // Map from roughly -3..+3 → 0..100
+  return Math.round(clamp((composite + 3) / 6 * 100, 0, 100));
+}
+
+function getRegime(score, roc4, accel) {
+  if (score >= 60 && accel >= 0) return { label:'Expansion',             emoji:'🟢', cls:'expansion',   sub:'Risk assets favored — BTC/equities bullish' };
+  if (score >= 45 && accel <  0) return { label:'Decelerating Expansion',emoji:'🟡', cls:'decel',        sub:'Late cycle — watch for slowdown, trim concentration' };
+  if (score <  40 && roc4  <  0) return { label:'Contraction',           emoji:'🔴', cls:'contraction',  sub:'Risk-off — reduce exposure, favor cash/bonds' };
+  if (score <  50 && roc4  >= 0) return { label:'Bottoming',             emoji:'🔵', cls:'bottoming',    sub:'Early recovery phase — begin building positions' };
+  return { label:'Transitioning', emoji:'⚪', cls:'decel', sub:'Mixed signals — wait for confirmation before acting' };
+}
+
+// ── UI ─────────────────────────────────────────────────────────
+function fmtDate(str, range) {
+  const d = new Date(str);
+  // For shorter ranges show day, for longer ranges show month+year
+  if (range === '1M' || range === '3M') return d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+  return d.toLocaleDateString('en-US', { month:'short', year:'2-digit' });
+}
+
+function setPill(id, val, posLabel, negLabel) {
+  const el = $(id);
+  if (val >= 0) {
+    el.className = 'pill pill-up';
+    el.textContent = '▲ ' + posLabel;
+  } else {
+    el.className = 'pill pill-down';
+    el.textContent = '▼ ' + negLabel;
+  }
+}
+
+function updateKPIs(d) {
+  const n = d.nl.length - 1;
+  const nl   = d.nl[n];
+  const r4   = d.roc4[n];
+  const r12  = d.roc12[n];
+  const acc  = d.accel[n];
+  const dNL  = nl - d.nl[n-1];
+
+  $('kpiNL').textContent  = fmtT(nl);
+  $('kpiNL').className    = 'kpi-val neu';
+  $('kpiNLPill').className = 'pill ' + (dNL >= 0 ? 'pill-up' : 'pill-down');
+  $('kpiNLPill').textContent = (dNL >= 0 ? '▲ +' : '▼ ') + fmtT(Math.abs(dNL)) + ' WoW';
+
+  $('kpi4W').textContent  = fmtP(r4);
+  $('kpi4W').className    = 'kpi-val ' + (r4 >= 0 ? 'pos' : 'neg');
+  setPill('kpi4WPill', r4, 'Expanding', 'Contracting');
+
+  $('kpi12W').textContent = fmtP(r12);
+  $('kpi12W').className   = 'kpi-val ' + (r12 >= 0 ? 'pos' : 'neg');
+  setPill('kpi12WPill', r12, 'Trending up', 'Trending down');
+
+  $('kpiAccel').textContent = fmtP(acc);
+  $('kpiAccel').className   = 'kpi-val ' + (acc >= 0 ? 'pos' : 'neg');
+  setPill('kpiAccelPill', acc, 'Accelerating ↑', 'Decelerating ↓');
+
+  // Momentum score
+  const score   = momentumScore(d);
+  const prevD   = Object.assign({}, d, { nl: d.nl.slice(0,-1), roc4: d.roc4.slice(0,-1), roc12: d.roc12.slice(0,-1), glb: d.glb.slice(0,-1), accel: d.accel.slice(0,-1) });
+  const prev    = momentumScore(prevD);
+  const delta   = score - prev;
+
+  $('scoreNum').textContent  = score;
+  $('scoreArrow').textContent = delta >= 0 ? '↑' : '↓';
+  $('scoreArrow').style.color = delta >= 0 ? 'var(--green)' : 'var(--red)';
+  $('scoreSub').textContent   = `${delta >= 0 ? '+' : ''}${delta} from last week`;
+
+  const regime = getRegime(score, r4, acc);
+  const banner = $('regimeBanner');
+  banner.className = 'regime-bar ' + regime.cls;
+  $('regimeEmoji').textContent = regime.emoji;
+  $('regimeText').textContent  = `${regime.label} — ${regime.sub}`;
+
+  drawGauge(score);
+  updateHeatmap(d);
+  buildAlerts(d, regime, score, r4, acc);
+  $('lastUpdated').textContent = `Updated ${new Date().toLocaleString()}`;
+  $('dataMode').textContent    = d.isDemo ? 'DEMO' : 'LIVE';
+  $('dataMode').className      = `badge ${d.isDemo ? 'badge-demo' : 'badge-live'}`;
+}
+
+// ── Gauge ──────────────────────────────────────────────────────
+function drawGauge(score) {
+  const c   = $('gauge');
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  ctx.clearRect(0, 0, W, H);
+  const cx = W/2, cy = H - 12, r = cx - 10;
+
+  // Track
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, Math.PI, 0, false);
+  ctx.lineWidth = 13;
+  ctx.strokeStyle = '#1f2d3d';
+  ctx.stroke();
+
+  // Colored arc
+  const col = score >= 65 ? '#10b981' : score >= 40 ? '#eab308' : '#ef4444';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, Math.PI, Math.PI + (Math.PI * score / 100), false);
+  ctx.lineWidth = 13;
+  ctx.strokeStyle = col;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // Needle
+  const ang = Math.PI + Math.PI * score / 100;
+  const nx = cx + Math.cos(ang) * (r - 5);
+  const ny = cy + Math.sin(ang) * (r - 5);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(nx, ny);
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy, 4, 0, Math.PI*2);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.fill();
+}
+
+// ── Heatmap ────────────────────────────────────────────────────
+function stressLevel(val, loThr, hiThr) {
+  return val >= hiThr ? 'hm-high' : val >= loThr ? 'hm-med' : 'hm-low';
+}
+function setCell(id, val, chg, cls) {
+  const cell = $(id);
+  cell.className = 'hm-cell ' + cls;
+  cell.querySelector('.hm-cell-val').textContent = val;
+  cell.querySelector('.hm-cell-chg').textContent = chg;
+}
+
+function updateHeatmap(d) {
+  const { dxy, sofr, move, hySprd } = d;
+  const dxyCls  = stressLevel(dxy,   104, 108);
+  const sofrCls = stressLevel(sofr,  4.0,  5.0);
+  const moveCls = stressLevel(move,  120,  150);
+  const hyCls   = stressLevel(hySprd, 4.0, 6.0);
+
+  setCell('hmDXY',  dxy.toFixed(1),       dxy > 104 ? '▲ Elevated — tightening' : '▼ Supportive',       dxyCls);
+  setCell('hmSOFR', sofr.toFixed(2) + '%', sofr > 4.5 ? 'Restrictive rate env.' : 'Neutral/easing',      sofrCls);
+  setCell('hmMOVE', move.toFixed(0),       move > 120 ? '▲ Elevated vol stress' : '▼ Calm markets',       moveCls);
+  setCell('hmHY',   hySprd.toFixed(2) + '%',hySprd > 4.5 ? '▲ Widening — risk-off' : '▼ Tight spreads',  hyCls);
+
+  const map = { 'hm-low': 0, 'hm-med': 50, 'hm-high': 100 };
+  const composite = (map[dxyCls] + map[sofrCls] + map[moveCls] + map[hyCls]) / 4;
+  const fillCol = composite > 60 ? 'var(--red)' : composite > 30 ? 'var(--yellow)' : 'var(--green)';
+  $('stressFill').style.width      = composite + '%';
+  $('stressFill').style.background = fillCol;
+  $('stressLabel').textContent     = `Composite Stress: ${composite.toFixed(0)}/100 — ${composite > 60 ? 'High' : composite > 30 ? 'Moderate' : 'Low'}`;
+}
+
+// ── Alerts ─────────────────────────────────────────────────────
+function buildAlerts(d, regime, score, r4, acc) {
+  const alerts = [];
+  const n = d.nl.length - 1;
+  const prevR4  = d.roc4[n-1];
+  const prevAcc = d.accel[n-1];
+
+  if (prevR4 < 0 && r4 >= 0)   alerts.push({ c:'g', msg:'4W ROC flipped positive — Early liquidity expansion signal',      t:'This week' });
+  if (prevAcc < 0 && acc >= 0) alerts.push({ c:'g', msg:'Acceleration turned positive — Momentum building, watch closely', t:'This week' });
+  if (d.dxy > 108)              alerts.push({ c:'r', msg:`DXY at ${d.dxy.toFixed(1)} — Elevated dollar tightening global liquidity`, t:'Current' });
+  if (d.hySprd > 5)             alerts.push({ c:'y', msg:`HY spreads at ${d.hySprd.toFixed(2)}% — Credit stress signal`,   t:'Current' });
+  if (d.rrp?.[n] < 100)         alerts.push({ c:'b', msg:`RRP near zero ($${d.rrp[n].toFixed(0)}B) — RRP liquidity boost exhausted`, t:'Current' });
+  if (score >= 70)              alerts.push({ c:'g', msg:`Momentum Score ${score}/100 — ${regime.label} confirmed — risk-on environment`, t:'Weekly' });
+  else if (score < 35)          alerts.push({ c:'r', msg:`Momentum Score ${score}/100 — ${regime.label} — reduce risk exposure`, t:'Weekly' });
+
+  const box = $('alertsBox');
+  if (!alerts.length) {
+    box.innerHTML = '<div class="alert-row"><div class="adot" style="background:var(--dim)"></div><div class="atxt" style="color:var(--muted)">No active alerts — all signals within normal bounds</div></div>';
+    return;
+  }
+  box.innerHTML = alerts.map(a => `
+    <div class="alert-row">
+      <div class="adot adot-${a.c}"></div>
+      <div class="atxt">${a.msg}</div>
+      <div class="atime">${a.t}</div>
+    </div>`).join('');
+}
+
+// ── Timeline Slicing ───────────────────────────────────────────
+function rangeCount(r) {
+  return { '1M': 4, '3M': 13, '6M': 26, '1Y': 52, '2Y': 9999 }[r] || 52;
+}
+function sliceFor(d, chartKey) {
+  if (!d) return d;
+  const n = rangeCount(S.timeRange[chartKey] || '1Y');
+  const start = Math.max(0, d.dates.length - n);
+  const out = {};
+  for (const [k, v] of Object.entries(d)) {
+    out[k] = Array.isArray(v) ? v.slice(start) : v;
+  }
+  return out;
+}
+function setChartRange(chart, range) {
+  S.timeRange[chart] = range;
+  if (!S.data) return;
+  const d = sliceFor(S.data, chart);
+  if (chart === 'nl')      initNL(d);
+  else if (chart === 'glb')    initGLB(d);
+  else if (chart === 'credit') initCredit(d);
+  else if (chart === 'overlay') initOverlay(d);
+}
+
+// ── Charts ─────────────────────────────────────────────────────
+const COLORS = {
+  orange:'#f97316', blue:'#3b82f6', green:'#10b981',
+  yellow:'#eab308', red:'#ef4444', purple:'#8b5cf6', btc:'#f7931a',
+};
+
+function baseOpts(yFmt) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    animation: { duration: 400 },
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#111827', borderColor: '#1f2d3d', borderWidth: 1,
+        titleColor: '#e2e8f0', bodyColor: '#64748b', padding: 11,
+      },
+    },
+    scales: {
+      x: { grid: { color:'rgba(31,45,61,.7)', drawBorder:false }, ticks: { color:'#2d3748', maxTicksLimit:10, maxRotation:0 } },
+      y: { grid: { color:'rgba(31,45,61,.7)', drawBorder:false }, ticks: { color:'#2d3748', callback: yFmt } },
+    },
+  };
+}
+
+function labels(dates, range) {
+  return dates.map(d => fmtDate(d, range));
+}
+
+function makeChart(id, type, data, options) {
+  const key = id;
+  if (S.charts[key]) S.charts[key].destroy();
+  S.charts[key] = new Chart($(id).getContext('2d'), { type, data, options });
+}
+
+// ── Net Liquidity Chart ────────────────────────────────────────
+function initNL(d) {
+  const lbls = labels(d.dates, S.timeRange.nl);
+  makeChart('nlChart', 'line', {
+    labels: lbls,
+    datasets: [
+      { label:'Net Liquidity', data:d.nl,  borderColor:COLORS.orange, backgroundColor:'rgba(249,115,22,.09)', borderWidth:2.5, fill:true,  tension:.4, pointRadius:0, yAxisID:'y' },
+      { label:'Fed Assets',   data:d.fed,  borderColor:COLORS.blue,   borderWidth:1.2, borderDash:[4,3], fill:false, tension:.3, pointRadius:0, yAxisID:'y' },
+      { label:'TGA',          data:d.tga,  borderColor:COLORS.yellow, borderWidth:1.2, borderDash:[6,4], fill:false, tension:.3, pointRadius:0, yAxisID:'y' },
+      { label:'RRP',          data:d.rrp,  borderColor:COLORS.purple, borderWidth:1.2, borderDash:[3,3], fill:false, tension:.3, pointRadius:0, yAxisID:'y' },
+    ]
+  }, { ...baseOpts(v => `$${(v/1000).toFixed(1)}T`), scales: { x: baseOpts().scales.x, y: { ...baseOpts().scales.y, ticks: { color:'#2d3748', callback: v => `$${(v/1000).toFixed(1)}T` } } } });
+}
+
+function setNLView(view, el) {
+  S.nlView = view;
+  $('nlTabs').querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+  el.classList.add('on');
+  const raw = S.data, c = S.charts.nlChart;
+  if (!raw || !c) return;
+  const d = sliceFor(raw, 'nl');
+  const views = {
+    level: { data:d.nl,    label:'Net Liquidity',    color:COLORS.orange, fmt: v=>`$${(v/1000).toFixed(1)}T` },
+    '4w':  { data:d.roc4,  label:'4W ROC (%)',        color:COLORS.blue,   fmt: v=>`${v.toFixed(1)}%` },
+    '12w': { data:d.roc12, label:'12W ROC (%)',        color:COLORS.green,  fmt: v=>`${v.toFixed(1)}%` },
+    accel: { data:d.accel, label:'Acceleration (ΔΔ%)', color:COLORS.yellow, fmt: v=>`${v.toFixed(2)}%` },
+  };
+  const v = views[view];
+  c.data.datasets[0].data = v.data;
+  c.data.datasets[0].label = v.label;
+  c.data.datasets[0].borderColor = v.color;
+  c.data.datasets[0].backgroundColor = v.color + '18';
+  [1,2,3].forEach(i => { c.data.datasets[i].hidden = view !== 'level'; });
+  c.options.scales.y.ticks.callback = v.fmt;
+  c.update();
+}
+
+// ── Global Liquidity Chart ─────────────────────────────────────
+function initGLB(d) {
+  makeChart('glbChart', 'line', {
+    labels: labels(d.dates, S.timeRange.glb),
+    datasets: [
+      { label:'PBoC', data:d.pboc, borderColor:COLORS.red,    backgroundColor:'rgba(239,68,68,.10)',   borderWidth:1.5, fill:'origin', tension:.4, pointRadius:0 },
+      { label:'BoJ',  data:d.boj,  borderColor:'#f7931a',     backgroundColor:'rgba(247,147,26,.10)',  borderWidth:1.5, fill:'-1',     tension:.4, pointRadius:0 },
+      { label:'ECB',  data:d.ecb,  borderColor:COLORS.green,  backgroundColor:'rgba(16,185,129,.09)',  borderWidth:1.5, fill:'-1',     tension:.4, pointRadius:0 },
+      { label:'Fed',  data:d.fed,  borderColor:COLORS.blue,   backgroundColor:'rgba(59,130,246,.09)',  borderWidth:2,   fill:'-1',     tension:.4, pointRadius:0 },
+    ]
+  }, baseOpts(v => `$${(v/1000).toFixed(0)}T`));
+}
+
+function setGLBView(view, el) {
+  S.glbView = view;
+  $('glbTabs').querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+  el.classList.add('on');
+  const d = sliceFor(S.data, 'glb'), c = S.charts.glbChart;
+  if (!d || !c) return;
+  const roc = (arr, w) => arr.map((v,i) => i<w ? 0 : rnd((v-arr[i-w])/Math.abs(arr[i-w])*100, 2));
+  const sets = { total: [d.pboc,d.boj,d.ecb,d.fed], yoy: [roc(d.pboc,52),roc(d.boj,52),roc(d.ecb,52),roc(d.fed,52)], '3m': [roc(d.pboc,13),roc(d.boj,13),roc(d.ecb,13),roc(d.fed,13)] };
+  const fmts = { total: v=>`$${(v/1000).toFixed(0)}T`, yoy: v=>`${v.toFixed(1)}%`, '3m': v=>`${v.toFixed(1)}%` };
+  sets[view].forEach((arr, i) => { c.data.datasets[i].data = arr; });
+  c.options.scales.y.ticks.callback = fmts[view];
+  c.update();
+}
+
+// ── Credit Chart ───────────────────────────────────────────────
+function initCredit(d) {
+  makeChart('creditChart', 'line', {
+    labels: labels(d.dates, S.timeRange.credit),
+    datasets: [
+      { label:'US Bank Lending YoY%', data:d.bankLending, borderColor:COLORS.blue,  backgroundColor:'rgba(59,130,246,.09)', borderWidth:2, fill:true,  tension:.4, pointRadius:0 },
+      { label:'China TSF YoY%',       data:d.chinaFSF,    borderColor:COLORS.red,   borderWidth:2, fill:false, tension:.4, pointRadius:0 },
+    ]
+  }, baseOpts(v => `${v}%`));
+}
+
+// ── Asset Overlay Chart ────────────────────────────────────────
+function initOverlay(d) {
+  const norm = arr => { const b = arr[0] || 1; return arr.map(v => rnd(v/b*100, 1)); };
+  const base = S.overlayBase === 'usnl' ? d.nl : d.glb;
+
+  const datasets = [{
+    label: S.overlayBase === 'usnl' ? 'US Net Liquidity (idx)' : 'Global Liquidity (idx)',
+    data: norm(base),
+    borderColor: COLORS.orange, backgroundColor:'rgba(249,115,22,.07)',
+    borderWidth:2.5, fill:true, tension:.4, pointRadius:0, yAxisID:'y',
+  }];
+
+  if (S.overlayAssets.includes('btc')) datasets.push({ label:'BTC (idx)', data:norm(d.btc), borderColor:'#f7931a', borderWidth:2, fill:false, tension:.4, pointRadius:0, yAxisID:'y2' });
+  if (S.overlayAssets.includes('ndx')) datasets.push({ label:'NASDAQ (idx)', data:norm(d.ndx), borderColor:COLORS.blue, borderWidth:2, fill:false, tension:.4, pointRadius:0, yAxisID:'y2' });
+  if (S.overlayAssets.includes('spx')) datasets.push({ label:'S&P 500 (idx)', data:norm(d.spx), borderColor:COLORS.purple, borderWidth:2, fill:false, tension:.4, pointRadius:0, yAxisID:'y2' });
+
+  const opts = {
+    ...baseOpts(v => v.toFixed(0)),
+    scales: {
+      x:  { grid:{color:'rgba(31,45,61,.7)', drawBorder:false}, ticks:{color:'#2d3748', maxTicksLimit:10, maxRotation:0} },
+      y:  { position:'left',  grid:{color:'rgba(31,45,61,.7)'}, ticks:{color:COLORS.orange, callback:v=>v.toFixed(0)}, title:{display:true,text:'Liquidity Index',color:COLORS.orange,font:{size:10}} },
+      y2: { position:'right', grid:{drawOnChartArea:false},     ticks:{color:'#64748b',      callback:v=>v.toFixed(0)},  title:{display:true,text:'Asset Index',   color:'#64748b',      font:{size:10}} },
+    },
+  };
+  makeChart('overlayChart', 'line', { labels:labels(d.dates, S.timeRange.overlay), datasets }, opts);
+}
+
+function toggleAsset(asset, el) {
+  const idx = S.overlayAssets.indexOf(asset);
+  if (idx === -1) { S.overlayAssets.push(asset); el.classList.add('on-'+asset); }
+  else            { S.overlayAssets.splice(idx,1); el.className = 'asset-chip'; }
+  if (S.data) initOverlay(sliceFor(S.data, 'overlay'));
+}
+
+function setOverlayBase(base, el) {
+  S.overlayBase = base;
+  document.querySelectorAll('.overlay-bar .tab').forEach(t => t.classList.remove('on'));
+  el.classList.add('on');
+  if (S.data) initOverlay(sliceFor(S.data, 'overlay'));
+}
+
+// ── Settings Modal ─────────────────────────────────────────────
+function openSettings()  { $('fredKey').value = S.fredKey; $('settingsModal').classList.add('open'); }
+function closeSettings() { $('settingsModal').classList.remove('open'); }
+function saveSettings()  {
+  S.fredKey = $('fredKey').value.trim();
+  localStorage.setItem('gl_fred_key', S.fredKey);
+  const interval = parseInt($('refreshInterval').value);
+  localStorage.setItem('gl_refresh', interval);
+  closeSettings();
+  refreshData();
+}
+
+// ── Main ───────────────────────────────────────────────────────
+async function refreshData() {
+  $('spinner').classList.add('on');
+  try {
+    let d = S.fredKey ? await fetchLive() : null;
+    if (!d) d = genDemo();
+    S.data = d;
+    updateKPIs(d);
+    initNL(sliceFor(d,'nl')); initGLB(sliceFor(d,'glb'));
+    initCredit(sliceFor(d,'credit')); initOverlay(sliceFor(d,'overlay'));
+  } catch(e) {
+    console.error('Dashboard error:', e);
+    const d = genDemo();
+    S.data = d;
+    updateKPIs(d);
+    initNL(sliceFor(d,'nl')); initGLB(sliceFor(d,'glb'));
+    initCredit(sliceFor(d,'credit')); initOverlay(sliceFor(d,'overlay'));
+  } finally {
+    $('spinner').classList.remove('on');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  refreshData();
+  const iv = parseInt(localStorage.getItem('gl_refresh') || '86400000');
+  if (iv > 0) setInterval(refreshData, iv);
+  $('settingsModal').addEventListener('click', e => { if (e.target === $('settingsModal')) closeSettings(); });
+});
+</script>
+</body>
+</html>
