@@ -477,7 +477,7 @@
           <div class="hm-cell-chg" id="sofrChg">—</div>
         </div>
         <div class="hm-cell hm-low" id="hmMOVE">
-          <div class="hm-cell-label">MOVE Index</div>
+          <div class="hm-cell-label">VIX</div>
           <div class="hm-cell-val" id="moveVal">—</div>
           <div class="hm-cell-chg" id="moveChg">—</div>
         </div>
@@ -645,6 +645,26 @@ async function fredFetch(series, _key) {
   return data.observations.filter(o => o.value !== '.').map(o => ({ date: o.date, val: parseFloat(o.value) }));
 }
 
+// ── Yahoo Finance API (via /api/prices proxy) ──
+function parseYahoo(data) {
+  const result = data?.chart?.result?.[0];
+  if (!result) return null;
+  const ts = result.timestamp;
+  const closes = result.indicators?.quote?.[0]?.close;
+  if (!ts || !closes) return null;
+  return ts.map((t, i) => ({
+    date: new Date(t * 1000).toISOString().split('T')[0],
+    val: closes[i]
+  })).filter(d => d.val != null && !isNaN(d.val));
+}
+async function tryPrice(symbol) {
+  try {
+    const res = await fetch(`/api/prices?symbol=${encodeURIComponent(symbol)}&interval=1wk&range=max`);
+    if (!res.ok) return null;
+    return parseYahoo(await res.json());
+  } catch(e) { console.warn(`Price fetch failed for ${symbol}:`, e.message); return null; }
+}
+
 function align(series, targetDates) {
   return targetDates.map(d => {
     const hit = series.find(s => s.date === d);
@@ -663,84 +683,125 @@ async function fetchLive() {
   const key = S.fredKey;
   if (!key) return null;
 
-  // WALCL is mandatory — everything else degrades gracefully
+  // WALCL is mandatory
   let walcl;
   try { walcl = await fredFetch('WALCL', key); }
-  catch(e) { console.error('FRED WALCL failed (bad key or network?):', e.message); return null; }
+  catch(e) { console.error('FRED WALCL failed:', e.message); return null; }
 
-  const [tgaS, rrpS, sofrS, hyS, ecbS, eurUsdS, bojS, jpyUsdS] = await Promise.all([
-    tryFred('WTREGEN',      key),
-    tryFred('RRPONTSYD',    key),
-    tryFred('SOFR',         key),
-    tryFred('BAMLH0A0HYM2', key),
-    tryFred('ECBASSETSW',   key),   // ECB total assets, millions EUR, weekly
-    tryFred('DEXUSEU',      key),   // USD per EUR (daily)
-    tryFred('JPNASSETS',    key),   // BoJ total assets, billions JPY, monthly
-    tryFred('DEXJPUS',      key),   // JPY per USD (daily)
+  // Fetch everything in parallel
+  const [
+    tgaS, rrpS, sofrS, hyS,
+    ecbS, eurUsdS,
+    bojS, jpyUsdS,
+    dxyS, totllS, vixS, cnyS, chinaM2S,
+    btcS, ndxS, spxS,
+  ] = await Promise.all([
+    tryFred('WTREGEN',       key),  // TGA, millions USD
+    tryFred('RRPONTSYD',     key),  // RRP, billions USD (already billions — no /1000)
+    tryFred('SOFR',          key),
+    tryFred('BAMLH0A0HYM2',  key),  // HY OAS spread
+    tryFred('ECBASSETSW',    key),  // ECB assets, millions EUR, weekly
+    tryFred('DEXUSEU',       key),  // USD per EUR, daily
+    tryFred('JPNASSETS',     key),  // BoJ assets, billions JPY, monthly
+    tryFred('DEXJPUS',       key),  // JPY per USD, daily
+    tryFred('DTWEXBGS',      key),  // Trade-weighted USD index (DXY proxy)
+    tryFred('TOTLL',         key),  // US total bank loans, billions USD, weekly
+    tryFred('VIXCLS',        key),  // CBOE VIX, daily
+    tryFred('EXCHUS',        key),  // CNY per USD, daily
+    tryFred('MYAGM2CNM189N', key),  // China M2, billions CNY, monthly (OECD)
+    tryPrice('BTC-USD'),
+    tryPrice('^NDX'),
+    tryPrice('^GSPC'),
   ]);
 
-  const demo  = genDemo();
+  const demo = genDemo();
   const dates = walcl.map(d => d.date);
-  const fed   = walcl.map(d => d.val);  // already in billions USD (WALCL is millions → divide by 1000 done by FRED? No — WALCL is in millions)
 
-  // WALCL is in millions of USD → convert to billions
-  const fedB  = fed.map(v => v / 1000);
+  const pad = (arr) => {
+    if (!arr || arr.length === 0) return dates.map(() => 0);
+    if (arr.length >= dates.length) return arr.slice(-dates.length);
+    return [...Array(dates.length - arr.length).fill(arr[0]), ...arr];
+  };
 
-  const tga   = tgaS ? align(tgaS, dates).map(v => v / 1000) : demo.tga.slice(-dates.length);
-  const rrp   = rrpS ? align(rrpS, dates).map(v => v / 1000) : demo.rrp.slice(-dates.length);
+  // ── Fed / TGA / RRP ──────────────────────────────────────────
+  // WALCL: millions USD → billions
+  const fedB = walcl.map(d => d.val / 1000);
+  // WTREGEN: millions USD → billions
+  const tga  = tgaS ? align(tgaS, dates).map(v => v / 1000) : pad(demo.tga);
+  // RRPONTSYD: already in billions USD — do NOT divide
+  const rrp  = rrpS ? align(rrpS, dates) : pad(demo.rrp);
+
   const nl    = fedB.map((v, i) => v - tga[i] - rrp[i]);
   const roc4  = nl.map((v, i) => i < 4  ? 0 : rnd((v - nl[i-4])  / Math.abs(nl[i-4])  * 100, 3));
   const roc12 = nl.map((v, i) => i < 12 ? 0 : rnd((v - nl[i-12]) / Math.abs(nl[i-12]) * 100, 3));
   const accel = roc4.map((v, i) => i < 1 ? 0 : rnd(v - roc4[i-1], 3));
 
-  // Pad or trim arrays to match live date length
-  const pad = (arr) => {
-    if (arr.length >= dates.length) return arr.slice(-dates.length);
-    return [...Array(dates.length - arr.length).fill(arr[0]), ...arr];
-  };
-
-  // ECB: millions EUR → billions USD (use most recent EUR/USD rate for simplicity)
+  // ── ECB: millions EUR × historical EUR/USD → billions USD ────
   let ecb;
-  if (ecbS && eurUsdS && eurUsdS.length > 0) {
-    const eurUsd = eurUsdS.at(-1).val; // latest EUR/USD rate
-    const ecbAligned = align(ecbS, dates); // millions EUR
-    ecb = ecbAligned.map(v => rnd(v / 1000 * eurUsd, 1)); // billions USD
-  } else {
-    ecb = pad(demo.ecb);
-  }
+  if (ecbS && eurUsdS?.length > 0) {
+    const eurUsdA = align(eurUsdS, dates);
+    const ecbA    = align(ecbS, dates);
+    ecb = ecbA.map((v, i) => rnd(v / 1000 * eurUsdA[i], 1));
+  } else { ecb = pad(demo.ecb); }
 
-  // BoJ: billions JPY → billions USD (use most recent JPY/USD rate)
+  // ── BoJ: billions JPY ÷ historical JPY/USD → billions USD ────
   let boj;
-  if (bojS && jpyUsdS && jpyUsdS.length > 0) {
-    const jpyPerUsd = jpyUsdS.at(-1).val; // JPY per 1 USD
-    const bojAligned = align(bojS, dates); // billions JPY
-    boj = bojAligned.map(v => rnd(v / jpyPerUsd, 1)); // billions USD
-  } else {
-    boj = pad(demo.boj);
-  }
+  if (bojS && jpyUsdS?.length > 0) {
+    const jpyUsdA = align(jpyUsdS, dates);
+    const bojA    = align(bojS, dates);
+    boj = bojA.map((v, i) => rnd(v / jpyUsdA[i], 1));
+  } else { boj = pad(demo.boj); }
 
-  // PBoC: not on FRED — use demo estimate (scaled to ~$5-6T range)
-  const pboc = pad(demo.pboc);
+  // ── PBoC: no public API — calibrated static estimate ─────────
+  // Balance sheet ~¥43,000B CNY; convert with live CNY/USD rate
+  const cnyPerUsd = cnyS?.at(-1)?.val ?? 7.25;
+  const pbocUSD   = rnd(43000 / cnyPerUsd, 1);
+  const pboc = dates.map(() => pbocUSD);
 
   const glb = fedB.map((v, i) => v + ecb[i] + boj[i] + pboc[i]);
 
-  // Track which series are real vs estimated
   const globalSources = [
     'Fed ✓',
     ecbS ? 'ECB ✓' : 'ECB ~est',
     bojS ? 'BoJ ✓' : 'BoJ ~est',
-    'PBoC ~est'
+    'PBoC ~¥43T est'
   ].join(' · ');
+
+  // ── DXY (trade-weighted dollar index) ────────────────────────
+  const dxyA = dxyS ? align(dxyS, dates) : null;
+  const dxy  = dxyA ? dxyA.at(-1) : 103.2;
+
+  // ── VIX (replaces hardcoded MOVE) ────────────────────────────
+  const vix = vixS?.at(-1)?.val ?? 18;
+
+  // ── US Bank Lending YoY% (TOTLL, billions, weekly) ───────────
+  let bankLending;
+  if (totllS) {
+    const t = align(totllS, dates);
+    bankLending = t.map((v, i) => i < 52 ? 0 : rnd((v - t[i-52]) / t[i-52] * 100, 2));
+  } else { bankLending = pad(demo.bankLending); }
+
+  // ── China M2 YoY% (MYAGM2CNM189N, monthly, billions CNY) ─────
+  let chinaFSF;
+  if (chinaM2S) {
+    const m = align(chinaM2S, dates);
+    chinaFSF = m.map((v, i) => i < 52 ? 0 : rnd((v - m[i-52]) / m[i-52] * 100, 2));
+  } else { chinaFSF = pad(demo.chinaFSF); }
+
+  // ── Asset prices (weekly, indexed) ───────────────────────────
+  const btc = btcS ? align(btcS, dates) : pad(demo.btc);
+  const ndx = ndxS ? align(ndxS, dates) : pad(demo.ndx);
+  const spx = spxS ? align(spxS, dates) : pad(demo.spx);
 
   return {
     dates, fed: fedB, tga, rrp, nl, roc4, roc12, accel,
     ecb, boj, pboc, glb, globalSources,
-    dxy: 103.2,
+    dxy,
     sofr:   sofrS?.at(-1)?.val ?? 4.35,
-    move:   102,
-    hySprd: hyS?.at(-1)?.val   ?? 3.5,
-    bankLending: pad(demo.bankLending), chinaFSF: pad(demo.chinaFSF),
-    btc: pad(demo.btc), ndx: pad(demo.ndx), spx: pad(demo.spx),
+    move:   vix,   // VIX stored in move field (heatmap reuses same key)
+    hySprd: hyS?.at(-1)?.val ?? 3.5,
+    bankLending, chinaFSF,
+    btc, ndx, spx,
     isDemo: false,
   };
 }
@@ -902,12 +963,12 @@ function updateHeatmap(d) {
   const { dxy, sofr, move, hySprd } = d;
   const dxyCls  = stressLevel(dxy,   104, 108);
   const sofrCls = stressLevel(sofr,  4.0,  5.0);
-  const moveCls = stressLevel(move,  120,  150);
+  const moveCls = stressLevel(move,  20,  30);   // VIX: 20=elevated, 30=high stress
   const hyCls   = stressLevel(hySprd, 4.0, 6.0);
 
-  setCell('hmDXY',  dxy.toFixed(1),       dxy > 104 ? '▲ Elevated — tightening' : '▼ Supportive',       dxyCls);
-  setCell('hmSOFR', sofr.toFixed(2) + '%', sofr > 4.5 ? 'Restrictive rate env.' : 'Neutral/easing',      sofrCls);
-  setCell('hmMOVE', move.toFixed(0),       move > 120 ? '▲ Elevated vol stress' : '▼ Calm markets',       moveCls);
+  setCell('hmDXY',  dxy.toFixed(1),        dxy > 104  ? '▲ Elevated — tightening' : '▼ Supportive',    dxyCls);
+  setCell('hmSOFR', sofr.toFixed(2) + '%', sofr > 4.5 ? 'Restrictive rate env.'   : 'Neutral/easing',  sofrCls);
+  setCell('hmMOVE', move.toFixed(1),        move > 20  ? '▲ Elevated volatility'   : '▼ Calm markets',  moveCls);
   setCell('hmHY',   hySprd.toFixed(2) + '%',hySprd > 4.5 ? '▲ Widening — risk-off' : '▼ Tight spreads',  hyCls);
 
   const map = { 'hm-low': 0, 'hm-med': 50, 'hm-high': 100 };
@@ -1076,7 +1137,7 @@ function initCredit(d) {
     labels: labels(d.dates, S.timeRange.credit),
     datasets: [
       { label:'US Bank Lending YoY%', data:d.bankLending, borderColor:COLORS.blue,  backgroundColor:'rgba(59,130,246,.09)', borderWidth:2, fill:true,  tension:.4, pointRadius:0 },
-      { label:'China TSF YoY%',       data:d.chinaFSF,    borderColor:COLORS.red,   borderWidth:2, fill:false, tension:.4, pointRadius:0 },
+      { label:'China M2 YoY%',         data:d.chinaFSF,    borderColor:COLORS.red,   borderWidth:2, fill:false, tension:.4, pointRadius:0 },
     ]
   }, baseOpts(v => `${v}%`));
 }
