@@ -406,7 +406,7 @@
         <select class="time-sel" onchange="setChartRange('nl',this.value)">
           <option value="1M">1M</option><option value="3M">3M</option>
           <option value="6M">6M</option><option value="1Y">1Y</option>
-          <option value="2Y" selected>All</option>
+          <option value="ALL" selected>All</option>
         </select>
       </div>
     </div>
@@ -435,7 +435,7 @@
         <select class="time-sel" onchange="setChartRange('glb',this.value)">
           <option value="1M">1M</option><option value="3M">3M</option>
           <option value="6M">6M</option><option value="1Y">1Y</option>
-          <option value="2Y" selected>All</option>
+          <option value="ALL" selected>All</option>
         </select>
       </div>
     </div>
@@ -499,7 +499,7 @@
         <select class="time-sel" onchange="setChartRange('credit',this.value)">
           <option value="1M">1M</option><option value="3M">3M</option>
           <option value="6M">6M</option><option value="1Y">1Y</option>
-          <option value="2Y" selected>All</option>
+          <option value="ALL" selected>All</option>
         </select>
       </div>
       <div class="chart-wrap h240"><canvas id="creditChart"></canvas></div>
@@ -525,7 +525,7 @@
         <select class="time-sel" onchange="setChartRange('overlay',this.value)">
           <option value="1M">1M</option><option value="3M">3M</option>
           <option value="6M">6M</option><option value="1Y">1Y</option>
-          <option value="2Y" selected>All</option>
+          <option value="ALL" selected>All</option>
         </select>
       </div>
     </div>
@@ -554,7 +554,7 @@ const S = {
   glbView:      'total',
   overlayAssets:[],
   overlayBase:  'usnl',
-  timeRange:    { nl:'2Y', glb:'2Y', credit:'2Y', overlay:'2Y' },
+  timeRange:    { nl:'ALL', glb:'ALL', credit:'ALL', overlay:'ALL' },
 };
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -740,8 +740,8 @@ function getRegime(score, roc4, accel) {
 // ── UI ─────────────────────────────────────────────────────────
 function fmtDate(str, range) {
   const d = new Date(str);
-  // For shorter ranges show day, for longer ranges show month+year
   if (range === '1M' || range === '3M') return d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+  if (range === 'ALL' || range === '2Y') return d.toLocaleDateString('en-US', { month:'short', year:'numeric' });
   return d.toLocaleDateString('en-US', { month:'short', year:'2-digit' });
 }
 
@@ -907,11 +907,12 @@ function buildAlerts(d, regime, score, r4, acc) {
 
 // ── Timeline Slicing ───────────────────────────────────────────
 function rangeCount(r) {
-  return { '1M': 4, '3M': 13, '6M': 26, '1Y': 52, '2Y': 9999 }[r] || 52;
+  return { '1M': 4, '3M': 13, '6M': 26, '1Y': 52, '2Y': 104, 'ALL': Infinity }[r] ?? Infinity;
 }
 function sliceFor(d, chartKey) {
   if (!d) return d;
-  const n = rangeCount(S.timeRange[chartKey] || '1Y');
+  const n = rangeCount(S.timeRange[chartKey] || 'ALL');
+  if (!isFinite(n)) return d; // ALL — return everything unmodified
   const start = Math.max(0, d.dates.length - n);
   const out = {};
   for (const [k, v] of Object.entries(d)) {
